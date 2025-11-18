@@ -92,12 +92,16 @@ app.get("/api/v1/vitals/latest", function (_req, res) {
  * GET /api/v1/vitals/latestAll
  * Returns latest reading for each (deviceId, stream) pair
  */
-app.get("/api/v1/vitals/latestAll", function (_req, res) {
-  const rows = latestByKey();
-  if (!rows.length) return res.status(404).json({ error: "no data yet" });
+app.get("/api/v1/vitals/latest", function (_req, res) {
+  const row = latest();
   res.set("Cache-Control", "no-store");
-  res.json(rows);
+  if (!row) {
+    // was: return res.status(404)...
+    return res.json(null);  // or { ok: true, reading: null }
+  }
+  res.json(row);
 });
+
 
 // ---------- legacy convenience (for quick testing) ----------
 app.get("/latest", function (_req, res) {
