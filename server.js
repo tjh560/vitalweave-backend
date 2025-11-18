@@ -15,8 +15,23 @@ function toRow(body) {
   if (!deviceId || !stream) return null;
   return { deviceId, stream, value, ts: Date.now() };
 }
+
 function latest() {
   return readings.length ? readings[readings.length - 1] : null;
+}
+
+// Return latest reading for each (deviceId, stream) pair
+function latestByKey() {
+  const latestMap = new Map();
+  // Walk from newest to oldest
+  for (let i = readings.length - 1; i >= 0; i--) {
+    const r = readings[i];
+    const key = `${r.deviceId}:${r.stream}`;
+    if (!latestMap.has(key)) {
+      latestMap.set(key, r); // first seen from the end = latest
+    }
+  }
+  return Array.from(latestMap.values());
 }
 
 // ---------- base/health ----------
@@ -31,6 +46,7 @@ app.post("/ingest", (req, res) => {
   console.log("ingest:", row);
   res.json({ ok: true });
 });
+
 app.post("/api/v1/ingest", (req, res) => {
   const row = toRow(req.body);
   if (!row) return res.status(400).json({ error: "bad payload" });
@@ -45,7 +61,10 @@ app.post("/api/v1/ingest", (req, res) => {
  * Returns last N readings (default 50, max 1000)
  */
 app.get("/api/v1/vitals", (req, res) => {
-  const limit = Math.min(Math.max(parseInt(req.query.limit || "50", 10), 1), 1000);
+  const limit = Math.min(
+    Math.max(parseInt(req.query.limit || "50", 10), 1),
+    1000
+  );
   res.set("Cache-Control", "no-store");
   res.json(readings.slice(-limit));
 });
@@ -61,6 +80,17 @@ app.get("/api/v1/vitals/latest", (_req, res) => {
   res.json(row);
 });
 
+/**
+ * GET /api/v1/vitals/latestAll
+ * Returns latest reading for each (deviceId, stream) pair
+ */
+app.get("/api/v1/vitals/latestAll", (_req, res) => {
+  const rows = latestByKey();
+  if (!rows.length) return res.status(404).json({ error: "no data yet" });
+  res.set("Cache-Control", "no-store");
+  res.json(rows);
+});
+
 // ---------- legacy convenience (kept for your inspector page) ----------
 app.get("/latest", (_req, res) => {
   res.set("Cache-Control", "no-store");
@@ -69,10 +99,15 @@ app.get("/latest", (_req, res) => {
 
 // ---------- quick HTML inspector ----------
 app.get("/inspect", (_req, res) => {
-  res.type("html").send(`<!doctype html><meta charset="utf-8"/>
+  res
+    .type("html")
+    .send(`<!doctype html><meta charset="utf-8"/>
   <h1>VitalWeave Readings</h1>
-  <p><a href="/api/v1/vitals/latest" target="_blank">/api/v1/vitals/latest</a> |
-     <a href="/api/v1/vitals?limit=10" target="_blank">/api/v1/vitals?limit=10</a></p>
+  <p>
+    <a href="/api/v1/vitals/latest" target="_blank">/api/v1/vitals/latest</a> |
+    <a href="/api/v1/vitals?limit=10" target="_blank">/api/v1/vitals?limit=10</a> |
+    <a href="/api/v1/vitals/latestAll" target="_blank">/api/v1/vitals/latestAll</a>
+  </p>
   <pre id="out">loading…</pre>
   <script>
     async function tick(){
@@ -87,5 +122,5 @@ app.get("/inspect", (_req, res) => {
 // ---------- start ----------
 const port = process.env.PORT || 8080;
 app.listen(port, "0.0.0.0", () => {
-  console.log(` ٩(◕‿◕)۶ VitalWeave backend listening on port ${port}`);
+  console.log(\` ٩(◕‿◕)۶ VitalWeave backend listening on port \${port}\`);
 });
