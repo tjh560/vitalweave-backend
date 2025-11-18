@@ -11,7 +11,10 @@ const readings = [];
 
 // ---------- helpers ----------
 function toRow(body) {
-  const { deviceId, stream, value } = body || {};
+  const deviceId = body && body.deviceId;
+  const stream = body && body.stream;
+  const value = body && body.value;
+
   if (!deviceId || !stream) return null;
   return { deviceId, stream, value, ts: Date.now() };
 }
@@ -26,7 +29,7 @@ function latestByKey() {
   // Walk from newest to oldest
   for (let i = readings.length - 1; i >= 0; i--) {
     const r = readings[i];
-    const key = `${r.deviceId}:${r.stream}`;
+    const key = r.deviceId + ":" + r.stream;
     if (!latestMap.has(key)) {
       latestMap.set(key, r); // first seen from the end = latest
     }
@@ -35,11 +38,16 @@ function latestByKey() {
 }
 
 // ---------- base/health ----------
-app.get("/", (_req, res) => res.send("VitalWeave backend running ✅"));
-app.get("/health", (_req, res) => res.json({ ok: true, count: readings.length }));
+app.get("/", function (_req, res) {
+  res.send("VitalWeave backend running");
+});
 
-// ---------- ingest (kept old path + new versioned path) ----------
-app.post("/ingest", (req, res) => {
+app.get("/health", function (_req, res) {
+  res.json({ ok: true, count: readings.length });
+});
+
+// ---------- ingest (old path + new versioned path) ----------
+app.post("/ingest", function (req, res) {
   const row = toRow(req.body);
   if (!row) return res.status(400).json({ error: "bad payload" });
   readings.push(row);
@@ -47,7 +55,7 @@ app.post("/ingest", (req, res) => {
   res.json({ ok: true });
 });
 
-app.post("/api/v1/ingest", (req, res) => {
+app.post("/api/v1/ingest", function (req, res) {
   const row = toRow(req.body);
   if (!row) return res.status(400).json({ error: "bad payload" });
   readings.push(row);
@@ -60,20 +68,20 @@ app.post("/api/v1/ingest", (req, res) => {
  * GET /api/v1/vitals?limit=50
  * Returns last N readings (default 50, max 1000)
  */
-app.get("/api/v1/vitals", (req, res) => {
-  const limit = Math.min(
-    Math.max(parseInt(req.query.limit || "50", 10), 1),
-    1000
-  );
+app.get("/api/v1/vitals", function (req, res) {
+  const limitRaw = req.query.limit || "50";
+  const limitParsed = parseInt(limitRaw, 10);
+  const clamped = Math.min(Math.max(limitParsed || 50, 1), 1000);
+
   res.set("Cache-Control", "no-store");
-  res.json(readings.slice(-limit));
+  res.json(readings.slice(-clamped));
 });
 
 /**
  * GET /api/v1/vitals/latest
  * Returns the single most recent reading (404 if none yet)
  */
-app.get("/api/v1/vitals/latest", (_req, res) => {
+app.get("/api/v1/vitals/latest", function (_req, res) {
   const row = latest();
   if (!row) return res.status(404).json({ error: "no data yet" });
   res.set("Cache-Control", "no-store");
@@ -84,43 +92,21 @@ app.get("/api/v1/vitals/latest", (_req, res) => {
  * GET /api/v1/vitals/latestAll
  * Returns latest reading for each (deviceId, stream) pair
  */
-app.get("/api/v1/vitals/latestAll", (_req, res) => {
+app.get("/api/v1/vitals/latestAll", function (_req, res) {
   const rows = latestByKey();
   if (!rows.length) return res.status(404).json({ error: "no data yet" });
   res.set("Cache-Control", "no-store");
   res.json(rows);
 });
 
-// ---------- legacy convenience (kept for your inspector page) ----------
-app.get("/latest", (_req, res) => {
+// ---------- legacy convenience (for quick testing) ----------
+app.get("/latest", function (_req, res) {
   res.set("Cache-Control", "no-store");
   res.json(readings.slice(-50)); // last 50 readings
 });
 
-// ---------- quick HTML inspector ----------
-app.get("/inspect", (_req, res) => {
-  res
-    .type("html")
-    .send(`<!doctype html><meta charset="utf-8"/>
-  <h1>VitalWeave Readings</h1>
-  <p>
-    <a href="/api/v1/vitals/latest" target="_blank">/api/v1/vitals/latest</a> |
-    <a href="/api/v1/vitals?limit=10" target="_blank">/api/v1/vitals?limit=10</a> |
-    <a href="/api/v1/vitals/latestAll" target="_blank">/api/v1/vitals/latestAll</a>
-  </p>
-  <pre id="out">loading…</pre>
-  <script>
-    async function tick(){
-      const r = await fetch('/api/v1/vitals?limit=20');
-      const j = await r.json();
-      document.getElementById('out').textContent = JSON.stringify(j, null, 2);
-    }
-    tick(); setInterval(tick, 2000);
-  </script>`);
-});
-
 // ---------- start ----------
 const port = process.env.PORT || 8080;
-app.listen(port, "0.0.0.0", () => {
-  console.log(\` ٩(◕‿◕)۶ VitalWeave backend listening on port \${port}\`);
+app.listen(port, "0.0.0.0", function () {
+  console.log("VitalWeave backend listening on port " + port);
 });
